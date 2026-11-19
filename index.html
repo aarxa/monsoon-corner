@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Monsoon Corner</title>
+    <meta name="description" content="A miniature Mumbai street corner you can push from noon to monsoon night." />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+
+    <header class="title">
+      <h1>Monsoon Corner</h1>
+      <p>A Mumbai street, from noon to downpour</p>
+    </header>
+
+    <p class="hint" id="hint">Loading the street…</p>
+
+    <aside class="card" id="card" hidden>
+      <button class="card__close" id="cardClose" aria-label="Close">×</button>
+      <p class="card__kicker" id="cardKicker"></p>
+      <h2 id="cardTitle"></h2>
+      <p id="cardBody"></p>
+    </aside>
+
+    <div class="tip" id="tip" hidden></div>
+
+    <section class="controls" aria-label="Scene controls">
+      <label class="ctl">
+        <span class="ctl__row"><span>Noon</span><b>Time</b><span>Night</span></span>
+        <input type="range" id="time" min="0" max="1" step="0.001" value="1" />
+      </label>
+      <label class="ctl">
+        <span class="ctl__row"><span>Dry</span><b>Rain</b><span>Downpour</span></span>
+        <input type="range" id="rain" min="0" max="1" step="0.001" value="0" />
+      </label>
+      <div class="btns">
+        <button id="monsoon" class="btn btn--main">Bring the monsoon</button>
+        <button id="sound" class="btn" aria-pressed="false">Sound</button>
+      </div>
+    </section>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+Monsoon Corner: the model and artwork
+Copyright (c) 2026 Aarya Rajgor
+
+This covers the 3D model and the artwork in this repository:
+  - the Blender files in blender/ (*.blend)
+  - the exported models in public/models/ (*.glb)
+  - the sign artwork in blender/signs/
+  - the screenshots in docs/
+
+They are licensed under the Creative Commons Attribution-NonCommercial 4.0
+International licence (CC BY-NC 4.0): https://creativecommons.org/licenses/by-nc/4.0/
+
+You may share and adapt them, as long as you credit "Monsoon Corner by Aarya Rajgor"
+with a link to this repository, and do not use them for commercial purposes.
+
+The code (src/, index.html and the build configuration) is under the MIT licence
+in LICENSE.
