@@ -13,6 +13,10 @@
 // The rooms come from the `room` markers at each pane in the street model (extras: w, h, nx, ny, kind).
 // A few balcony doors are lit from within by a lamp of their own (extras: lamp, a colour, and gain): a warm
 // yellow room with cream walls and a bulb, whose light also spills out over the balcony (world.js).
+//
+// In a power cut (uPower < 1) the lights and TVs go off, except in the one flat with an inverter (uInv), and
+// over the next few seconds (uCut: time since the cut) a candle is lit in some homes and a phone torch goes
+// round others, its pool of light sliding over the walls, until someone finds a candle there too.
 import * as THREE from 'three';
 
 // lamp colour (sRGB) and strength for each batch of windows (glow_win1..6), as in the street model's window glass
@@ -20,7 +24,7 @@ const LAMPS = [['#ffc77a', 0.95], ['#f4f6ff', 1.1], ['#ff9f45', 0.75], ['#ffe6b0
 
 export function makeRooms(parent) {
   const uniforms = {
-    uTime: { value: 0 }, uLvl: { value: 0 }, uDay: { value: 1 },
+    uTime: { value: 0 }, uLvl: { value: 0 }, uDay: { value: 1 }, uPower: { value: 1 }, uCut: { value: 0 }, uInv: { value: -1 },
     uLamp: { value: LAMPS.map(([c, k]) => { const v = new THREE.Color(c); return new THREE.Vector4(v.r, v.g, v.b, k); }) },
   };
   // dark glass with the sky in it; the room is added as emitted light from behind the pane
@@ -49,6 +53,7 @@ export function makeRooms(parent) {
   function build(markers) {
     const pos = [], nrm = [], uv = [], room = [], lampA = [], idx = [];
     const lc = new THREE.Color();
+    let invScore = Infinity;
     parent.updateMatrixWorld(true);
     markers.forEach((o, i) => {
       const { w, h, nx, ny, kind, lamp, gain = 0 } = o.userData;
@@ -68,6 +73,11 @@ export function makeRooms(parent) {
         lampA.push(lc.r, lc.g, lc.b, lamp ? gain : 0);
       }
       idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      // the flat with the inverter: a TV room on the front, as near the middle of the street as there is
+      if (kind === 'glow_tv' && N.z > 0.7) {
+        const score = Math.abs(tmp.x) + Math.abs(tmp.y - 3.4);
+        if (score < invScore) { invScore = score; uniforms.uInv.value = seed; }
+      }
     });
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -86,17 +96,20 @@ export function makeRooms(parent) {
   return {
     build, material: mat,
     get mesh() { return mesh; },
-    /** lvl: how far into the evening the windows are (as for the glow_win batches); day: daylight 0..1 */
-    update(t, lvl, day) {
+    /** lvl: how far into the evening the windows are (as for the glow_win batches); day: daylight 0..1;
+     *  power: the mains, 0..1; cut: seconds since the power last went */
+    update(t, lvl, day, power = 1, cut = 0) {
       uniforms.uTime.value = t;
       uniforms.uLvl.value = lvl;
       uniforms.uDay.value = day;
+      uniforms.uPower.value = power;
+      uniforms.uCut.value = cut;
     },
   };
 }
 
 const ROOM_GLSL = /* glsl */`
-uniform float uTime, uLvl, uDay;
+uniform float uTime, uLvl, uDay, uPower, uCut, uInv;
 uniform vec4 uLamp[6];
 varying vec4 vRoom, vLamp; varying vec2 vRUv; varying vec3 vRPos; varying vec3 vRN;
 
@@ -218,6 +231,25 @@ vec3 roomColour() {
   }
   float tvOn = tv ? clamp((uLvl - 0.6) * 8.0, 0.0, 1.0) : 0.0;
   if (kind > 6.5) { lamp = lin(vec3(1.0, 0.8, 0.55)) * 0.15; on = tvOn; }   // a TV room: just a dim bulb left on
+  // a power cut: the mains go, except in the flat with the inverter
+  // (each home on its own threshold, so as the mains come back they come on one by one, and a flicker
+  // catches some and not others)
+  float pw = abs(seed - uInv) < 0.01 || uPower > 0.99 ? 1.0 : step(0.15 + 0.8 * rh(seed + 40.0), uPower);
+  on *= pw; tvOn *= pw;
+  // and in the dark a candle is lit in some homes; in others a phone torch goes round first
+  float cdl = 0.0, trc = 0.0;
+  if (kind > 0.5 && pw < 0.99) {
+    float r = rh(seed + 31.0), t1 = 1.0 + 5.0 * rh(seed + 33.0);
+    if (r < 0.45) cdl = smoothstep(0.0, 1.2, uCut - 2.5 - 12.0 * rh(seed + 32.0));
+    else if (r < 0.75) {
+      trc = smoothstep(0.0, 0.3, uCut - t1) * (1.0 - smoothstep(0.0, 0.5, uCut - t1 - 9.0));
+      cdl = smoothstep(0.0, 1.2, uCut - t1 - 9.3);
+    }
+    cdl *= 1.0 - pw; trc *= 1.0 - pw;
+  }
+  vec3 Lc = vec3((rh(seed + 34.0) - 0.5) * W * 0.9, yF + 0.36, D * (0.35 + 0.3 * rh(seed + 35.0)));   // on a table
+  float fl = 0.8 + 0.12 * sin(uTime * 11.0 + seed) + 0.08 * sin(uTime * 23.0 + seed * 3.0);
+  vec3 candleC = lin(vec3(1.0, 0.6, 0.28));
   vec3 Lp = vec3(0.0, yC - 0.03, D * 0.55);                 // the tube light / bulb, high in the room
   if (lit) Lp = vec3(0.2 * (rh(seed + 20.0) - 0.5), yC - 0.12, D * 0.45);   // a bare bulb, a little lower
   float fall = 1.0 / (1.0 + (lit ? 6.0 : 3.0) * dot(h - Lp, h - Lp));
@@ -231,11 +263,21 @@ vec3 roomColour() {
   light += tvc * tvOn * 0.9 * tvFall * max(0.2, dot(ns, normalize(tvPos - h)) * 0.5 + 0.5);
   // daylight from the window: brightest near it, fading back into the room
   light += uDay * vec3(0.9, 0.95, 1.0) * (0.07 + 0.2 * exp(-h.z * 2.2)) * (ns.y > 0.5 ? 1.2 : 1.0);
+  // the candle, low on a table, flickering
+  light += candleC * cdl * fl * (0.05 + 0.75 / (1.0 + 14.0 * dot(h - Lc, h - Lc)));
+  // the phone torch: held by someone wandering about, its beam sliding over the walls
+  if (trc > 0.0) {
+    vec3 To = vec3(0.25 * sin(uTime * 0.31 + seed), yF + 0.55, 0.3);
+    vec3 Ta = vec3(hw * 0.85 * sin(uTime * 0.9 + seed * 1.7), yF + 0.25 + 0.3 * sin(uTime * 0.53 + seed), D);
+    vec3 tl = h - To; float tlen = length(tl);
+    float cone = smoothstep(0.94, 0.985, dot(tl / tlen, normalize(Ta - To)));
+    light += lin(vec3(0.92, 0.95, 1.0)) * trc * (0.05 + 1.6 * cone / (1.0 + 3.0 * tlen * tlen));
+  }
   vec3 col = c * light * ao;
   if (onTv) col = tvc * tvOn * 1.6 + vec3(0.003);
 
   // someone in the room: walking across now and then, or sitting watching the TV with their back to us
-  if (on > 0.01 || tvOn > 0.01 || uDay > 0.25) {
+  if (on > 0.01 || tvOn > 0.01 || uDay > 0.25 || cdl > 0.01 || trc > 0.01) {
     float part;
     vec3 skin = lin(vec3(0.55, 0.37, 0.26)), hairC = vec3(0.012);
     vec3 shirt = lin(pick(rh(seed + 13.0), vec3(0.9, 0.9, 0.88), vec3(0.3, 0.45, 0.75), vec3(0.75, 0.3, 0.3),
@@ -248,7 +290,7 @@ vec3 roomColour() {
       float body = max(rect(q, vec2(-0.1, 0.22), vec2(0.1, 0.42)) * (1.0 - smoothstep(0.38, 0.43, q.y) * smoothstep(0.07, 0.1, abs(q.x))),
                        disc(q * vec2(1.0, 0.85), vec2(0.0, 0.48 * 0.85), 0.05));
       if (ts < t && body > 0.5) {
-        vec3 rim = tvc * tvOn * 0.35 + lamp * on * 0.25;
+        vec3 rim = tvc * tvOn * 0.35 + lamp * on * 0.25 + candleC * cdl * 0.2;
         col = (q.y > 0.43 ? hairC : shirt * 0.5) * (rim + 0.02);
       }
     }
@@ -269,9 +311,15 @@ vec3 roomColour() {
       if (tc < t && cov > 0.5) {
         vec3 pc = part > 2.5 ? hairC : part > 1.5 ? skin : part > 0.5 ? shirt : (rh(seed + 19.0) > 0.5 ? shirt * 0.85 : lin(vec3(0.15, 0.17, 0.22)));
         // lit mostly from behind by the room's light, so they read darker than the wall: a figure against the light
-        col = pc * (lamp * on * 0.3 + tvc * tvOn * 0.25 + uDay * 0.07) * (0.7 + 0.3 * smoothstep(0.0, 0.7, q.y));
+        col = pc * (lamp * on * 0.3 + tvc * tvOn * 0.25 + uDay * 0.07 + candleC * cdl * 0.2 + trc * 0.12) * (0.7 + 0.3 * smoothstep(0.0, 0.7, q.y));
       }
     }
+  }
+  // the candle's flame itself, where the view passes close by it
+  if (cdl > 0.01) {
+    float tf = dot(Lc - p, d) / dot(d, d);
+    vec3 dq = (p + d * tf - Lc) * vec3(1.0, 0.5, 1.0);
+    if (tf > 0.0 && tf < t) col += lin(vec3(1.0, 0.75, 0.4)) * cdl * fl * 3.0 * (1.0 - smoothstep(0.004, 0.012, length(dq)));
   }
   if (lit) {
     // a cotton curtain gathered to one side of the door, glowing with the lamp behind it

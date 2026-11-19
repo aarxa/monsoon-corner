@@ -35,7 +35,10 @@ export function registerMaterials(root, W) {
         const thr = win ? 0.46 + (+win[1] - 1) * 0.08 : m.name === 'glow_tv' ? 0.6 : null;
         // windows glow softly, like rooms lit by one tube light, not like lamps
         const max = m.emissiveIntensity * (thr != null ? 0.32 : 1);
-        W.glow.push({ mat: m, max, thr });
+        // on the mains (windows, signs, tube lights) or not (a flame, a diya, a lantern, a vehicle's lamps):
+        // only the first kind goes out in a power cut
+        const grid = !/^glow_(flame|diya|incense|lantern|headlight|tail|meter)/.test(m.name);
+        W.glow.push({ mat: m, max, thr, grid });
         m.emissiveIntensity = 0;
       }
       const wet = m.name.match(/_w(\d+)$/);
@@ -51,10 +54,10 @@ export function buildWorld(scene) {
   const W = { world, glow: [], sway: [], hotspots: [], spouts: [], drips: [], edges: [], fans: [], foliage: [], rooms: [], perches: [], kettleTop: new THREE.Vector3(-4.0, 0.82, 0.62) };
 
   // real lights; they move to the light_* markers once the street loads
-  const point = (color, max) => {
+  const point = (color, max, grid = true) => {
     const l = new THREE.PointLight(color, 0, 0, 2); // physically based: inverse-square falloff
     world.add(l);
-    W.glow.push({ light: l, max });
+    W.glow.push({ light: l, max, grid });
     return l;
   };
   const lights = {
@@ -62,8 +65,8 @@ export function buildWorld(scene) {
     light_shop: point('#ffd9a0', 3.0),     // kirana tube light
     light_med: point('#eaf6ff', 3.4),      // pharmacy, brightest shop on the street
     light_xerox: point('#eaf6ff', 2.2),
-    light_shrine: point('#ffb347', 0.35),  // one diya
-    light_thela: point('#ffcf7a', 1.0),    // a small lantern
+    light_shrine: point('#ffb347', 0.35, false), // one diya
+    light_thela: point('#ffcf7a', 1.0, false),   // a small lantern
   };
   const lamp = new THREE.SpotLight('#ffa64a', 0, 0, 1.0, 0.6, 2);
   lamp.castShadow = true;
@@ -93,7 +96,7 @@ export function buildWorld(scene) {
   beam.position.set(0.95, 0.35, 0);
   beam.target.position.set(4, 0, 0);
   W.taxi.add(beam, beam.target);
-  W.glow.push({ light: beam, max: 28 });
+  W.glow.push({ light: beam, max: 28, grid: false });
   // someone walking along the road edge (umbrella up when it rains)
   W.walker = new THREE.Group();
   W.walker.name = 'walker';

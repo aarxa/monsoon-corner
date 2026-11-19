@@ -605,6 +605,20 @@ export function makeSound() {
       ctx.resume(); return true;
     },
     update(rain) { if (rainGain) rainGain.gain.setTargetAtTime(rain * 0.5, ctx.currentTime, 0.3); },
+    /** a transformer going: a sharp crack and a buzz that dies */
+    pop() {
+      if (!this.on) return;
+      const t0 = ctx.currentTime, dur = 0.6;
+      const buf = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) {
+        const x = i / ctx.sampleRate;
+        d[i] = (Math.random() * 2 - 1) * Math.exp(-x * 30) + 0.25 * Math.sign(Math.sin(x * 2 * Math.PI * 100)) * Math.exp(-x * 6);
+      }
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const g = ctx.createGain(); g.gain.value = 0.5;
+      src.connect(g).connect(master); src.start(t0);
+    },
     thunder(delay = 0.8) {
       if (!this.on) return;
       const t0 = ctx.currentTime + delay, dur = 3;

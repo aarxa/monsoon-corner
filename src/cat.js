@@ -176,6 +176,11 @@ export function makeCat(parent, impacts) {
   return {
     group, ready,
     get cat() { return C; },
+    /** for the stories: back on the scooter's seat at once */
+    home() {
+      if (!C) return;
+      Object.assign(C, { state: 'seat', pos: { x: SEAT.x, z: SEAT.z }, y: SEAT.y, yaw: SEAT.yaw, speed: 0, leap: null, path: [], wait: 0 });
+    },
     /** watch: a world point she should look at (a passing dog, someone close by), or null */
     update(dt, t, rain, watch) {
       if (!C) return;

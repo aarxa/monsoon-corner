@@ -23,6 +23,9 @@ import { makePigeons } from './pigeons.js';
 import { makeLook } from './looks.js';
 import { makeCity } from './city.js';
 import { stories } from './stories.js';
+import { tales } from './tales.js';
+import { makeDirector } from './director.js';
+import { makePower } from './power.js';
 
 // Haze that follows Beer–Lambert: light from a surface fades as exp(-d / L) over the distance d it travels
 // through wet air (L = attenuation length). d is measured from the front edge of the block, so zooming
@@ -128,7 +131,8 @@ const clipTaxi = (root) => root.traverse((o) => {
 });
 clipTaxi(W.taxi);
 const bike = makeBike(W.world, clip); // a family of three on a motorbike, now and then
-W.glow.push({ light: bike.beam, max: 18 });
+W.glow.push({ light: bike.beam, max: 18, grid: false });
+const power = makePower(W.world, W); // the stove flame, the kirana's battery light and the transformer, for a power cut
 bike.ready.then((g) => registerMaterials(g, W)).catch(() => {}); // its head and tail lamps light up at night
 const taxiWheels = [];
 const modelsReady = swapInModels(W.world, (name, model) => {
@@ -274,7 +278,8 @@ function sample(t) {
 const $ = (id) => document.getElementById(id);
 W.ready.then(() => { $('hint').textContent = 'Drag to look around · click things'; });
 const ui = { time: $('time'), rain: $('rain'), monsoon: $('monsoon'), sound: $('sound') };
-const state = { time: +ui.time.value, rain: +ui.rain.value, wet: 0, flash: 0, auto: null };
+// cloud: overcast without (or before) rain; power: the mains (0 in a power cut); cut: seconds since it went
+const state = { time: +ui.time.value, rain: +ui.rain.value, wet: 0, flash: 0, auto: null, cloud: 0, power: 1, cut: 0, scare: false };
 ui.time.addEventListener('input', () => { state.time = +ui.time.value; state.auto = null; idle(); });
 ui.rain.addEventListener('input', () => { state.rain = +ui.rain.value; state.auto = null; idle(); });
 ui.monsoon.addEventListener('click', () => {
@@ -288,10 +293,50 @@ ui.monsoon.addEventListener('click', () => {
 });
 ui.sound.addEventListener('click', () => ui.sound.setAttribute('aria-pressed', sound.toggle()));
 
+// ---------- stories (src/tales.js, played by src/director.js) ----------
+const director = makeDirector({
+  camera, controls, state, tales,
+  el: { fade: $('fade'), title: $('taleTitle'), name: $('taleName'), line: $('taleLine'), bar: $('taleBar') },
+  hooks: {
+    prepare(tale) {
+      const p = tale.prepare || {};
+      if (p.wet != null) state.wet = p.wet;
+      if (p.washing != null) neighbours.setWashing(p.washing);
+      if (p.catHome) cat.home();
+      state.flash = 0;
+      card.hidden = true; tip.hidden = true; menu.hidden = true;
+    },
+    pigeons() { state.scare = true; },                       // the flock goes up
+    bang() { power.bang(); sound.pop(); },                  // the transformer
+    thunder() { state.flash = 0.45; sound.thunder(0.5 + Math.random() * 0.6); },
+  },
+  onEnd() {
+    ui.monsoon.textContent = (state.auto?.rain ?? state.rain) > 0.5 ? 'Clear the sky' : 'Bring the monsoon';
+    $('hint').textContent = 'Drag to look around · click things';
+    idle();
+  },
+});
+const menu = $('menu');
+for (const tale of tales) {
+  const b = document.createElement('button');
+  b.className = 'menu__item';
+  b.innerHTML = `<b></b><span></span><i></i>`;
+  b.querySelector('b').textContent = tale.title;
+  b.querySelector('span').textContent = tale.blurb;
+  b.querySelector('i').textContent = `${Math.round(tale.length)} s`;
+  b.addEventListener('click', () => { menu.hidden = true; director.play(tale.id); });
+  menu.appendChild(b);
+}
+$('stories').addEventListener('click', (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; $('stories').setAttribute('aria-expanded', !menu.hidden); });
+addEventListener('click', (e) => { if (!menu.hidden && !menu.contains(e.target)) { menu.hidden = true; $('stories').setAttribute('aria-expanded', false); } });
+$('taleSkip').addEventListener('click', () => director.stop());
+addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (director.playing) director.stop(); else menu.hidden = true; } });
+
 // stop the slow spin once someone starts playing
 let idleTimer;
 function idle() {
   controls.autoRotate = false;
+  if (director?.playing) return;
   $('hint').classList.add('is-gone');
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => { controls.autoRotate = true; }, 25000);
@@ -317,7 +362,7 @@ function pick(e) {
   return null;
 }
 canvas.addEventListener('pointermove', (e) => {
-  if (e.pointerType !== 'mouse') return;
+  if (e.pointerType !== 'mouse' || director.active) return;
   hovered = pick(e);
   canvas.style.cursor = hovered ? 'pointer' : 'grab';
   if (hovered) {
@@ -327,6 +372,7 @@ canvas.addEventListener('pointermove', (e) => {
 });
 canvas.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
 canvas.addEventListener('pointerup', (e) => {
+  if (director.active) return;
   if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) return; // that was a drag
   const o = pick(e);
   if (!o) return;
@@ -350,6 +396,11 @@ function frame() {
   const dt = Math.min(timer.getDelta(), 0.05);
   const t = timer.getElapsed();
 
+  // a story, if one is playing, sets the time, the weather and the power, and holds the camera
+  const directing = director.update(dt);
+  if (director.playing) { ui.time.value = state.time; ui.rain.value = state.rain; }
+  else if (state.cloud > 0) state.cloud = Math.max(0, state.cloud - dt * 0.03); // a story's cloud drifts off after it
+
   // ease toward the monsoon button's targets
   if (state.auto) {
     state.time += (state.auto.time - state.time) * dt * 0.35;
@@ -366,7 +417,9 @@ function frame() {
 
   const k = sample(state.time);
   const r = state.rain;
-  const gloom = r * 0.65;
+  const oc = Math.max(r, state.cloud);   // how overcast: the rain's cloud, or cloud gathering before it
+  const gloom = oc * 0.65;
+  state.cut = state.power < 0.99 ? state.cut + dt : 0;
 
   // sky & fog: rain greys everything out
   const grey = tmpC.set(k.night > 0.6 ? '#121722' : '#7c8794');
@@ -389,14 +442,19 @@ function frame() {
   // under monsoon cloud the sun is gone but the whole sky glows: no hard shadows, plenty of soft light,
   // and the eye adapts to it (exposure), so colours stay colours. Night storms just get darker.
   const day = 1 - k.night;
-  sun.intensity = k.sun * (1 - 0.92 * r);
+  sun.intensity = k.sun * (1 - 0.92 * oc);
   sun.color.copy(k.sunCol);
-  hemi.intensity = k.hemi * (1 + r * (0.35 * day - 0.35 * k.night));
-  hemi.color.copy(k.hemiSky).lerp(tmpC2.set('#e8ebee').lerp(tmpC4.set('#7c8598'), k.night), r); // overcast skylight is a flat grey-white (grey-blue at night)
+  hemi.intensity = k.hemi * (1 + oc * (0.35 * day - 0.35 * k.night));
+  hemi.color.copy(k.hemiSky).lerp(tmpC2.set('#e8ebee').lerp(tmpC4.set('#7c8598'), k.night), oc); // overcast skylight is a flat grey-white (grey-blue at night)
   hemi.groundColor.copy(k.hemiGround).lerp(tmpC2.set('#5d5a55'), r * 0.6); // and the wet street bounces less warmth
-  moon.intensity = k.moon * (1 - 0.6 * r);
-  scene.environmentIntensity = k.env * (1 + r * (0.1 * day - 0.4 * k.night));
-  renderer.toneMappingExposure = 1 + 0.12 * day + 0.22 * r * day; // the eye opens up a little in bright daylight
+  moon.intensity = k.moon * (1 - 0.6 * oc);
+  scene.environmentIntensity = k.env * (1 + oc * (0.1 * day - 0.4 * k.night));
+  renderer.toneMappingExposure = 1 + 0.12 * day + 0.22 * oc * day; // the eye opens up a little in bright daylight
+  // a power cut at night: much of a city night's glow is its own lights bounced about, so the dark street
+  // loses some of its skylight too, and the candles show
+  const outage = (1 - state.power) * k.night;
+  hemi.intensity *= 1 - 0.4 * outage;
+  scene.environmentIntensity *= 1 - 0.4 * outage;
   updateEnv(t, skyCol, fog, tmpC3.set('#4d4339').multiplyScalar(0.25 + 0.75 * day));
 
   // lightning in a heavy night storm
@@ -412,15 +470,17 @@ function frame() {
   }
 
   // lamps, signs and windows come on as night falls
-  const night = THREE.MathUtils.smoothstep(k.night + r * 0.25, 0.25, 0.75);
-  // windows come on in batches (glow_win1..6), everything else with the dusk
-  const lvl = k.night + r * 0.15;
-  rooms.update(t, lvl, day * (1 - 0.45 * r));
+  const night = THREE.MathUtils.smoothstep(k.night + oc * 0.25, 0.25, 0.75);
+  // windows come on in batches (glow_win1..6), everything else with the dusk; in a power cut only what
+  // isn't on the mains stays lit
+  const lvl = k.night + oc * 0.15;
+  rooms.update(t, lvl, day * (1 - 0.45 * oc), state.power, state.cut);
   for (const g of W.glow) {
-    const on = g.thr == null ? night : THREE.MathUtils.clamp((lvl - g.thr) * 8, 0, 1);
+    const on = (g.thr == null ? night : THREE.MathUtils.clamp((lvl - g.thr) * 8, 0, 1)) * (g.grid === false ? 1 : state.power);
     if (g.light) g.light.intensity = g.max * on;
     if (g.mat) g.mat.emissiveIntensity = g.max * on;
   }
+  power.update(dt, t, state.power, state.cut);
   // the sodium lamp flickers a little in the storm
   if (r > 0.6) W.lamp.intensity *= 0.92 + 0.08 * Math.sin(t * 37) * Math.sin(t * 5.3);
 
@@ -438,13 +498,13 @@ function frame() {
   grade.uniforms.uTime.value = t;
   grade.uniforms.uNight.value = night;
   look.update(t, night, grade.uniforms.uRes.value.x, grade.uniforms.uRes.value.y);
-  city.update(dt, t, k.night, r, fog, skyCol, wind.speed, camera, controls.target, state.wet);
+  city.update(dt, t, k.night, oc, fog, skyCol, wind.speed, camera, controls.target, state.wet);
   grade.uniforms.uTint.value.set(...k.tint);
   grade.uniforms.uSat.value = THREE.MathUtils.lerp(0.94, 1.0, Math.max(k.night, r * 0.5)); // a touch under neutral by day, so a bright noon doesn't shout
   grade.uniforms.uContrast.value = 0.05 * day * (1 - 0.5 * r); // the faintest snap by day, none at night (it would crush the shadows)
 
   // weather
-  wind.update(t, r);
+  wind.update(t, Math.max(r, state.cloud * 0.9)); // the wind gets up as the cloud comes in
   rain.update(dt, r, wind.speed);
   impacts.update(dt);
   splash.update(dt);
@@ -462,7 +522,7 @@ function frame() {
     if (f.on == null) { f.on = Math.random() < 0.8; f.timer = 15 + Math.random() * 40; f.w = f.on ? f.rpm : 0; }
     f.timer -= dt;
     if (f.timer <= 0) { f.on = Math.random() < 0.8; f.timer = 15 + Math.random() * 40; }
-    f.w = (f.w ?? 0) + ((f.on ? f.rpm : 0) - (f.w ?? 0)) * (1 - Math.exp(-dt / 1.6));
+    f.w = (f.w ?? 0) + ((f.on && state.power > 0.5 ? f.rpm : 0) - (f.w ?? 0)) * (1 - Math.exp(-dt / 1.6)); // and wind down in a power cut
     f.obj.rotation.y += (f.w / 60) * Math.PI * 2 * dt;
   }
 
@@ -541,21 +601,24 @@ function frame() {
     }
   }
   cat.update(dt, t, r, eye);
-  pigeons.update(dt, t, r, k.night, dogs.dogs.concat(crowd.people), state.flash > 0.4 && !state.flashSeen);
+  pigeons.update(dt, t, r, k.night, dogs.dogs.concat(crowd.people), (state.flash > 0.4 && !state.flashSeen) || state.scare);
   state.flashSeen = state.flash > 0.4;
+  state.scare = false;
   spouts?.update(dt, r);
   drips?.update(dt, r);
   mist.update(dt, r, scene.fog.color, wind.speed);
 
   // camera
-  if (focus.target) {
-    controls.target.lerp(focus.target, dt * 2.5);
-    if (controls.target.distanceTo(focus.target) < 0.01) focus.target = null;
+  if (!directing) {
+    if (focus.target) {
+      controls.target.lerp(focus.target, dt * 2.5);
+      if (controls.target.distanceTo(focus.target) < 0.01) focus.target = null;
+    }
+    controls.update(dt);
   }
-  controls.update(dt);
   composer.render();
   requestAnimationFrame(frame);
 }
 // handy for poking at the scene from the console
-window.__mc = { camera, controls, scene, W, state, renderer, crowd, cricket, bike, dogs, rooms, neighbours, cat, pigeons, look, city };
+window.__mc = { camera, controls, scene, W, state, renderer, crowd, cricket, bike, dogs, rooms, neighbours, cat, pigeons, look, city, director, power };
 requestAnimationFrame(frame);

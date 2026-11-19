@@ -49,6 +49,48 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
 .card__close { position: absolute; top: 8px; right: 10px; border: 0; background: none; font-size: 22px; cursor: pointer; color: var(--ink); }
 @keyframes pop { from { transform: translateY(8px); opacity: 0; } }
 
+.menu {
+  position: absolute; right: 0; bottom: calc(100% + 12px); width: min(320px, calc(100vw - 32px));
+  display: grid; gap: 8px; padding: 12px; background: var(--paper); border: 2px solid var(--ink); border-radius: 14px;
+  box-shadow: 4px 4px 0 var(--ink); animation: pop .2s ease-out;
+}
+.menu[hidden] { display: none; }
+.menu__head { margin: 0 2px 2px; font: 11px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: #666; }
+.menu__item {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; text-align: left; padding: 10px 12px; cursor: pointer;
+  font: inherit; color: var(--ink); background: #fff; border: 2px solid var(--ink); border-radius: 10px;
+}
+.menu__item:hover { background: var(--accent); }
+.menu__item b { font-size: 16px; letter-spacing: -.01em; }
+.menu__item i { font: normal 11px var(--mono); color: #666; align-self: center; }
+.menu__item span { grid-column: 1 / -1; font-size: 13px; line-height: 1.4; color: #333; }
+
+/* a story playing: the controls step aside for the captions */
+.fade { position: fixed; inset: 0; background: #05070d; opacity: 0; pointer-events: none; transition: opacity .6s ease; z-index: 5; }
+.fade.is-on { opacity: 1; }
+.tale-title {
+  position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); margin: 0; pointer-events: none; z-index: 4;
+  font-size: clamp(34px, 6vw, 72px); font-weight: 800; letter-spacing: -.03em; color: var(--paper); text-align: center;
+  text-shadow: 0 2px 18px rgba(0,0,0,.45); opacity: 0; transition: opacity 1.2s ease;
+}
+.tale-title.is-on { opacity: 1; }
+.tale {
+  position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, 16px); width: min(640px, calc(100% - 32px));
+  padding: 14px 18px 16px; background: var(--paper); border: 2px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 var(--ink);
+  opacity: 0; pointer-events: none; transition: opacity .5s ease, transform .5s ease; overflow: hidden;
+}
+.tale__bar { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: rgba(0,0,0,.08); }
+.tale__bar i { display: block; height: 100%; width: 0; background: var(--ink); }
+.tale__name { margin: 0 0 8px; min-height: 22px; line-height: 22px; padding-right: 64px; font: 11px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: #666; }
+.tale__line { margin: 0; min-height: 3em; font-size: 17px; line-height: 1.5; opacity: 0; transition: opacity .38s ease; }
+.tale__line.is-on { opacity: 1; }
+.tale__skip { position: absolute; top: 12px; right: 12px; line-height: 1; font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .05em; padding: 5px 10px; border: 2px solid var(--ink); border-radius: 999px; background: var(--paper); cursor: pointer; }
+.tale__skip:hover { background: #fff; }
+body.is-telling .tale { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+body.is-telling .controls, body.is-telling .card, body.is-telling .hint { opacity: 0; pointer-events: none; }
+.controls { transition: opacity .5s ease; }
+body.is-telling #scene { cursor: default; }
+
 .tip { position: fixed; pointer-events: none; padding: 4px 8px; font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .05em; background: var(--ink); color: var(--paper); border-radius: 6px; transform: translate(12px, 12px); }
 .tip[hidden] { display: none; }
 
@@ -56,6 +98,9 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
   .controls { grid-template-columns: 1fr; gap: 10px; bottom: 12px; padding: 12px 14px; }
   .btns { justify-content: space-between; }
   .card { bottom: auto; top: 96px; left: 16px; }
+  .menu { right: auto; left: 50%; transform: translateX(-50%); }
+  .tale { bottom: 12px; padding: 12px 14px 14px; }
+  .tale__line { font-size: 15px; }
   .title { left: 16px; top: 14px; }
   .hint { display: none; }
 }

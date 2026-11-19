@@ -26,6 +26,15 @@
 
     <div class="tip" id="tip" hidden></div>
 
+    <div class="fade" id="fade"></div>
+    <p class="tale-title" id="taleTitle"></p>
+    <section class="tale" aria-live="polite">
+      <div class="tale__bar"><i id="taleBar"></i></div>
+      <p class="tale__name" id="taleName"></p>
+      <p class="tale__line" id="taleLine"></p>
+      <button class="tale__skip" id="taleSkip">Skip</button>
+    </section>
+
     <section class="controls" aria-label="Scene controls">
       <label class="ctl">
         <span class="ctl__row"><span>Noon</span><b>Time</b><span>Night</span></span>
@@ -37,8 +46,10 @@
       </label>
       <div class="btns">
         <button id="monsoon" class="btn btn--main">Bring the monsoon</button>
+        <button id="stories" class="btn" aria-expanded="false" aria-controls="menu">Stories</button>
         <button id="sound" class="btn" aria-pressed="false">Sound</button>
       </div>
+      <div class="menu" id="menu" hidden><p class="menu__head">Watch a story</p></div>
     </section>
 
     <script type="module" src="/src/main.js"></script>

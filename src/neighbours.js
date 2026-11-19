@@ -238,6 +238,13 @@ export function makeNeighbours(parent) {
   return {
     group, ready,
     get uncle() { return U; }, get aunty() { return A; },
+    /** for the stories: the washing out on the line (or in) at once, and her indoors */
+    setWashing(on) {
+      if (!A) return;
+      for (const w of wash) { w.on = on; w.obj.visible = on; }
+      Object.assign(A, { state: 'in', wait: 2, task: null, path: [], full: 0, carrying: false, hurry: false, dry: on ? 0 : 99 });
+      A.holder.visible = A.bucket.visible = A.heap.visible = false;
+    },
     /** focus: a world point uncle watches (or null) */
     update(dt, t, rain, night, windSpeed, focus) {
       if (!U) return;
