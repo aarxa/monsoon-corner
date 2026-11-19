@@ -8,6 +8,8 @@ everything on it lives: the rain, the light, the people, the animals and the cit
 
 ![Monsoon Corner in a night downpour](docs/night-rain.jpg)
 
+![The street from above at night, its balcony doors lit](docs/night-doors.jpg)
+
 It opens at night. Drag **Time** back towards noon, push **Rain** up to a downpour, or press
 **Bring the monsoon** and let it roll in. Drag to look around, scroll to zoom, and click things on the
 street to read about them.

@@ -122,12 +122,12 @@ export function buildWorld(scene) {
         o.getWorldPosition(lights[n].position);
       } else if (n.startsWith('light_door')) {
         // a lit doorway: a soft warm spot from just inside, spilling out over whoever sits in front of it
-        const spot = new THREE.SpotLight('#ffcf8a', 0, 3.5, 1.15, 1.0, 2);
+        const { nx = 0, ny = -1, color = '#ffcf8a', max = 0.9, batch = 1 } = o.userData;
+        const spot = new THREE.SpotLight(color, 0, 3.5, 1.15, 1.0, 2);
         o.getWorldPosition(spot.position);
-        const { nx = 0, ny = -1 } = o.userData;
         spot.target.position.copy(spot.position).add(v.set(nx, -0.32, -ny));
         world.add(spot, spot.target);
-        W.glow.push({ light: spot, max: 0.9, thr: 0.46 }); // on with the first batch of windows
+        W.glow.push({ light: spot, max, thr: 0.46 + (batch - 1) * 0.08 }); // on with its batch of windows
       } else if (n === 'light_lamp') {
         o.getWorldPosition(lamp.position);
         lamp.target.position.copy(lamp.position).add(v.set(-0.6, -3.15, 0.5));

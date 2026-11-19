@@ -11,6 +11,8 @@
 // window, behind the glass's own reflections. The rooms of glass_dark windows stay dark: nobody's home.
 //
 // The rooms come from the `room` markers at each pane in the street model (extras: w, h, nx, ny, kind).
+// A few balcony doors are lit from within by a lamp of their own (extras: lamp, a colour, and gain): a warm
+// yellow room with cream walls and a bulb, whose light also spills out over the balcony (world.js).
 import * as THREE from 'three';
 
 // lamp colour (sRGB) and strength for each batch of windows (glow_win1..6), as in the street model's window glass
@@ -29,10 +31,10 @@ export function makeRooms(parent) {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
-        attribute vec4 aRoom; attribute vec2 aRoomUv;
-        varying vec4 vRoom; varying vec2 vRUv; varying vec3 vRPos; varying vec3 vRN;`)
+        attribute vec4 aRoom, aLamp; attribute vec2 aRoomUv;
+        varying vec4 vRoom, vLamp; varying vec2 vRUv; varying vec3 vRPos; varying vec3 vRN;`)
       .replace('#include <project_vertex>', `#include <project_vertex>
-        vRoom = aRoom; vRUv = aRoomUv;
+        vRoom = aRoom; vLamp = aLamp; vRUv = aRoomUv;
         vRPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
         vRN = normalize(mat3(modelMatrix) * objectNormal);`);
     sh.fragmentShader = sh.fragmentShader
@@ -45,10 +47,12 @@ export function makeRooms(parent) {
   let mesh = null;
   const tmp = new THREE.Vector3();
   function build(markers) {
-    const pos = [], nrm = [], uv = [], room = [], idx = [];
+    const pos = [], nrm = [], uv = [], room = [], lampA = [], idx = [];
+    const lc = new THREE.Color();
     parent.updateMatrixWorld(true);
     markers.forEach((o, i) => {
-      const { w, h, nx, ny, kind } = o.userData;
+      const { w, h, nx, ny, kind, lamp, gain = 0 } = o.userData;
+      lc.set(lamp || '#000000');
       if (w == null) return;
       parent.worldToLocal(o.getWorldPosition(tmp));
       const N = new THREE.Vector3(nx, 0, -ny).normalize();      // Blender (x, y) -> three (x, -z)
@@ -61,6 +65,7 @@ export function makeRooms(parent) {
         nrm.push(N.x, N.y, N.z);
         uv.push(a, b);
         room.push(w, h, seed, k);
+        lampA.push(lc.r, lc.g, lc.b, lamp ? gain : 0);
       }
       idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
     });
@@ -69,6 +74,7 @@ export function makeRooms(parent) {
     g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
     g.setAttribute('aRoomUv', new THREE.Float32BufferAttribute(uv, 2));
     g.setAttribute('aRoom', new THREE.Float32BufferAttribute(room, 4));
+    g.setAttribute('aLamp', new THREE.Float32BufferAttribute(lampA, 4));
     g.setIndex(idx);
     mesh = new THREE.Mesh(g, mat);
     mesh.name = 'rooms';
@@ -92,7 +98,7 @@ export function makeRooms(parent) {
 const ROOM_GLSL = /* glsl */`
 uniform float uTime, uLvl, uDay;
 uniform vec4 uLamp[6];
-varying vec4 vRoom; varying vec2 vRUv; varying vec3 vRPos; varying vec3 vRN;
+varying vec4 vRoom, vLamp; varying vec2 vRUv; varying vec3 vRPos; varying vec3 vRN;
 
 float rh(float n) { return fract(sin(n * 127.1 + 0.31) * 43758.5453); }
 vec3 lin(vec3 c) { return pow(c, vec3(2.2)); }
@@ -121,6 +127,7 @@ float person(vec2 q, float saree, float stride, out float part) {
 
 vec3 roomColour() {
   float W = vRoom.x, H = vRoom.y, seed = vRoom.z, kind = vRoom.w;
+  bool lit = vLamp.a > 0.0;                               // a lamp-lit room behind a balcony door
   vec3 N = normalize(vRN), U = vec3(0.0, 1.0, 0.0), T = normalize(cross(U, N));
   vec3 V = normalize(vRPos - cameraPosition);
   vec3 d = vec3(dot(V, T), dot(V, U), -dot(V, N));
@@ -137,12 +144,13 @@ vec3 roomColour() {
   // this household
   vec3 wall = lin(pick(rh(seed + 3.0), vec3(0.64, 0.84, 0.76), vec3(0.6, 0.76, 0.9), vec3(0.9, 0.7, 0.75),
                        vec3(0.92, 0.86, 0.58), vec3(0.75, 0.69, 0.87), vec3(0.92, 0.88, 0.78)));
+  if (lit) wall = lin(mix(vec3(0.96, 0.88, 0.66), vec3(0.97, 0.8, 0.62), rh(seed + 3.0)));   // cream or peach distemper
   float fr = rh(seed + 4.0);
   vec3 floorC = lin(fr < 0.35 ? vec3(0.55, 0.24, 0.18) : fr < 0.7 ? vec3(0.62, 0.6, 0.56) : vec3(0.84, 0.82, 0.78));
   vec3 cloth = lin(pick(rh(seed + 5.0), vec3(0.62, 0.16, 0.2), vec3(0.2, 0.32, 0.6), vec3(0.75, 0.55, 0.2),
                         vec3(0.3, 0.5, 0.35), vec3(0.55, 0.3, 0.55), vec3(0.4, 0.25, 0.18)));
   float tvSide = rh(seed + 6.0) < 0.5 ? -1.0 : 1.0;
-  bool tv = kind > 6.5 || (kind > 0.5 && rh(seed + 7.0) < 0.3);
+  bool tv = !lit && (kind > 6.5 || (kind > 0.5 && rh(seed + 7.0) < 0.3));
   float tvZ = D * (0.3 + 0.25 * rh(seed + 8.0));
 
   // surfaces
@@ -169,7 +177,7 @@ vec3 roomColour() {
       c = mix(c, lin(vec3(0.95, 0.94, 0.9)), rect(q, pc - vec2(0.06, 0.09), pc + vec2(0.06, 0.09)));
       c = mix(c, lin(vec3(0.8, 0.15, 0.12)), rect(q, pc + vec2(-0.06, 0.04), pc + vec2(0.06, 0.09)));
     }
-    c = mix(c, vec3(1.6), rect(q, vec2(-0.22, yC - 0.07), vec2(0.22, yC - 0.045)) * 0.9); // the tube light
+    if (!lit) c = mix(c, vec3(1.6), rect(q, vec2(-0.22, yC - 0.07), vec2(0.22, yC - 0.045)) * 0.9); // the tube light
   } else if (t == tx) {                                   // a side wall: (depth, height)
     ns = vec3(-sign(d.x), 0.0, 0.0);
     edge = min(D - h.z, min(h.y - yF, yC - h.y));
@@ -206,13 +214,14 @@ vec3 roomColour() {
   if (kind > 0.5 && kind < 6.5) {
     int b = int(kind + 0.5) - 1;
     on = clamp((uLvl - (0.46 + float(b) * 0.08)) * 8.0, 0.0, 1.0);
-    lamp = uLamp[b].rgb * uLamp[b].a;
+    lamp = lit ? vLamp.rgb * vLamp.a : uLamp[b].rgb * uLamp[b].a;
   }
   float tvOn = tv ? clamp((uLvl - 0.6) * 8.0, 0.0, 1.0) : 0.0;
   if (kind > 6.5) { lamp = lin(vec3(1.0, 0.8, 0.55)) * 0.15; on = tvOn; }   // a TV room: just a dim bulb left on
   vec3 Lp = vec3(0.0, yC - 0.03, D * 0.55);                 // the tube light / bulb, high in the room
-  float fall = 1.0 / (1.0 + 3.0 * dot(h - Lp, h - Lp));
-  vec3 light = lamp * on * (0.17 + 0.7 * fall);
+  if (lit) Lp = vec3(0.2 * (rh(seed + 20.0) - 0.5), yC - 0.12, D * 0.45);   // a bare bulb, a little lower
+  float fall = 1.0 / (1.0 + (lit ? 6.0 : 3.0) * dot(h - Lp, h - Lp));
+  vec3 light = lamp * on * (lit ? 0.12 + 1.35 * fall : 0.17 + 0.7 * fall);
   // the TV: scene cuts every second or two, each its own colour and brightness, with a little shimmer
   float cut = floor(uTime * (0.5 + 0.4 * rh(seed + 12.0)) + seed);
   vec3 tvc = lin(vec3(0.45 + 0.55 * rh(cut), 0.45 + 0.55 * rh(cut + 1.7), 0.55 + 0.45 * rh(cut + 3.1))) * (0.6 + 0.4 * rh(cut + 5.3))
@@ -263,6 +272,20 @@ vec3 roomColour() {
         col = pc * (lamp * on * 0.3 + tvc * tvOn * 0.25 + uDay * 0.07) * (0.7 + 0.3 * smoothstep(0.0, 0.7, q.y));
       }
     }
+  }
+  if (lit) {
+    // a cotton curtain gathered to one side of the door, glowing with the lamp behind it
+    float side = rh(seed + 21.0) < 0.5 ? -1.0 : 1.0;
+    float u = (vRUv.x - 0.5) * side - (0.5 - 0.24 - 0.1 * rh(seed + 22.0));
+    if (u > 0.0) {
+      float fold = 0.5 + 0.5 * sin(u * W * 70.0 + 1.3 * sin(vRUv.y * 5.0));
+      vec3 cc = lin(pick(rh(seed + 23.0), vec3(0.95, 0.78, 0.45), vec3(0.9, 0.55, 0.4), vec3(0.95, 0.9, 0.75),
+                         vec3(0.85, 0.6, 0.55), vec3(0.95, 0.75, 0.5), vec3(0.8, 0.82, 0.6)));
+      col = cc * (lamp * on * (0.28 + 0.3 * fold) * (0.75 + 0.25 * vRUv.y) + uDay * 0.12 * (0.7 + 0.3 * fold));
+    }
+    // the door's two leaves: a stile down the middle and a glazing bar across, dark against the light
+    float bar = max(1.0 - smoothstep(0.009, 0.013, abs(vRUv.x - 0.5) * W), 1.0 - smoothstep(0.006, 0.01, abs(vRUv.y - 0.5) * H));
+    col = mix(col, lin(vec3(0.2, 0.12, 0.07)) * (0.02 + 0.3 * uDay), bar);
   }
   return col;
 }
