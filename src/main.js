@@ -37,10 +37,32 @@ THREE.ShaderChunk.fog_fragment = /* glsl */`
   gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
 #endif`;
 
+// ---------- how much this device can take ----------
+// Phones get a lighter street: fewer pixels, no ambient-occlusion pass, cheaper edge smoothing, smaller
+// shadow maps, half the rain, a steady 30 fps, and a check that drops the resolution a step further if
+// it still can't keep up. (?quality=phone or ?quality=full overrides the guess.)
+const Q = (() => {
+  const ask = new URL(location.href).searchParams.get('quality');
+  const small = Math.min(screen.width, screen.height) <= 600 && matchMedia('(pointer: coarse)').matches;
+  const weak = navigator.deviceMemory != null && navigator.deviceMemory <= 3;
+  const phone = ask ? ask === 'phone' : small || weak;
+  return {
+    phone,
+    pixelRatio: Math.min(devicePixelRatio, phone ? 1.25 : 1.5),
+    minPixelRatio: 0.75,
+    samples: phone ? 2 : 4,
+    ao: !phone,
+    sunShadow: phone ? 1024 : 2048,
+    lampShadow: phone ? 512 : 1024,
+    rain: phone ? 3500 : 7500,
+    fps: phone ? 30 : 0,   // 0: as fast as the screen refreshes
+  };
+})();
+
 // ---------- renderer, scene, camera ----------
 const canvas = document.getElementById('scene');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !Q.phone }); // (on phones the composer's own smoothing is enough)
+renderer.setPixelRatio(Q.pixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -97,7 +119,7 @@ controls.autoRotate = true; controls.autoRotateSpeed = 0.35;
 const hemi = new THREE.HemisphereLight('#dff1ff', '#8a7660', 1.1);
 const sun = new THREE.DirectionalLight('#fff4e0', 2.6);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(Q.sunShadow, Q.sunShadow);
 Object.assign(sun.shadow.camera, { left: -11, right: 11, top: 11, bottom: -11, near: 1, far: 60 });
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
 sun.shadow.radius = 4; // soft-edged shadows
@@ -119,7 +141,8 @@ const neighbours = makeNeighbours(W.world); // uncle with his chai on the balcon
 neighbours.ready.then((g) => registerMaterials(g, W)).catch(() => {});
 const cat = makeCat(W.world, impacts);
 const pigeons = makePigeons(W.world);     // kabootar: on the ledges and wires, at the grain by the xerox shop    // a ginger cat on the scooter's seat, who can't stand the rain
-const rain = makeRain(scene, impacts);
+const rain = makeRain(scene, impacts, Q.rain);
+W.lamp.shadow.mapSize.set(Q.lampShadow, Q.lampShadow);
 const steam = makeSteam(scene, W.kettleTop);
 const road = makeWetRoad(scene);
 renderer.localClippingEnabled = true;
@@ -198,10 +221,7 @@ Promise.allSettled([W.ready, modelsReady, crowd.ready, cricket.ready, bike.ready
   loading.compiling();
   await new Promise((r) => setTimeout(r, 50)); // let the bar show it
   try { await Promise.race([renderer.compileAsync(scene, camera), new Promise((r) => setTimeout(r, 15000))]); } catch { /* draw anyway */ }
-  loading.go();
-  // the first frames compile what's left (shadows, the post-processing passes) while still covered
-  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))));
-  loading.done();
+  loading.go(); // the frame loop lifts the curtain after its first few frames (see `drawn` below)
 });
 const walk = { wait: 4, speed: 0.55, phase: 0, joints: {}, umbrella: null };
 const tmpV = new THREE.Vector3();
@@ -209,7 +229,7 @@ clipTaxi(W.walker);
 
 // ---------- post: antialiasing, ambient occlusion, bloom, a light film grade ----------
 // a multisampled target keeps edges smooth (the composer would otherwise drop the renderer's antialiasing)
-const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 }));
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: Q.samples }));
 composer.addPass(new RenderPass(scene, camera));
 // ambient occlusion: corners, ledges and contact points settle into soft shadow
 const gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
@@ -235,9 +255,8 @@ class HideForAO extends Pass {
     }
   }
 }
-composer.addPass(new HideForAO(true));
-composer.addPass(gtao);
-composer.addPass(new HideForAO(false));
+// (on phones the whole ambient-occlusion step is skipped: the heaviest pass, and the least missed on a small screen)
+for (const p of [new HideForAO(true), gtao, new HideForAO(false)]) { p.enabled = Q.ao; composer.addPass(p); }
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.2, 0.5, 0.95);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
@@ -420,7 +439,33 @@ const timer = new THREE.Timer();
 timer.connect(document);
 const tmpC = new THREE.Color(), tmpC2 = new THREE.Color(), tmpC3 = new THREE.Color(), tmpC4 = new THREE.Color();
 
-function frame() {
+// on phones: a steady 30 fps (smoother-feeling than a frame rate that jumps about, and kinder to the
+// battery), and if frames still come too slowly, a step down in resolution, at most three times
+const pace = { last: 0, slow: 0, n: 0, steps: 0, since: 0 };
+let drawn = 0;
+function paced(now) {
+  if (!Q.fps) return true;
+  if (now - pace.last < 1000 / Q.fps - 3) return false;
+  const gap = pace.last ? now - pace.last : 0;
+  pace.last = now;
+  if (loading.live && gap && gap < 1000) {
+    pace.n++; if (gap > 1000 / 22) pace.slow++;
+    if (!pace.since) pace.since = now;
+    if (now - pace.since > 3000) { // every 3 s: were most frames slow?
+      pace.since = now;
+      if (pace.slow > pace.n * 0.5 && pace.steps < 3 && renderer.getPixelRatio() > Q.minPixelRatio + 0.01) {
+        const pr = Math.max(Q.minPixelRatio, renderer.getPixelRatio() - 0.2);
+        renderer.setPixelRatio(pr); composer.setPixelRatio(pr); resize();
+        pace.steps++;
+      }
+      pace.n = pace.slow = 0;
+    }
+  }
+  return true;
+}
+
+function frame(now = performance.now()) {
+  if (!paced(now)) { requestAnimationFrame(frame); return; }
   timer.update();
   if (!loading.live) { requestAnimationFrame(frame); return; } // still loading: nothing to draw yet
   const dt = Math.min(timer.getDelta(), 0.05);
@@ -646,8 +691,10 @@ function frame() {
     controls.update(dt);
   }
   composer.render();
+  // the first frames compile what's left (shadows, the post-processing passes) while still covered
+  if (drawn < 3 && ++drawn === 3) loading.done();
   requestAnimationFrame(frame);
 }
 // handy for poking at the scene from the console
-window.__mc = { camera, controls, scene, W, state, renderer, crowd, cricket, bike, dogs, rooms, neighbours, cat, pigeons, look, city, director, power };
+window.__mc = { camera, controls, scene, W, state, renderer, composer, Q, loading, crowd, cricket, bike, dogs, rooms, neighbours, cat, pigeons, look, city, director, power };
 requestAnimationFrame(frame);
