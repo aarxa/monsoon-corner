@@ -185,6 +185,7 @@ public/models/      the Blender model, exported as .glb
 blender/            the Blender files (.blend, one per model) and the sign artwork (signs/*.png)
 src/
   main.js           scene, lighting, time of day, post-processing, the frame loop
+  loading.js        the loading screen: real download progress, then shaders compiled before the reveal
   world.js          loads the street and wires up what its names mean
   physics.js        wind, shelter map, rain, impacts, swaying things
   weather.js        steam, wet road, spouts and splashes, drips, runoff, sound

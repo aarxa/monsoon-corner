@@ -10,6 +10,16 @@
   <body>
     <canvas id="scene"></canvas>
 
+    <div class="loader" id="loader" role="progressbar" aria-label="Loading the street" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div class="loader__rain" aria-hidden="true"></div>
+      <div class="loader__box">
+        <h1>Monsoon Corner</h1>
+        <p class="loader__sub">A Mumbai street, from noon to downpour</p>
+        <div class="loader__bar"><i id="loaderFill"></i></div>
+        <p class="loader__status"><span id="loaderText">Getting ready</span><span id="loaderPct">0%</span></p>
+      </div>
+    </div>
+
     <header class="title">
       <h1>Monsoon Corner</h1>
       <p>A Mumbai street, from noon to downpour</p>

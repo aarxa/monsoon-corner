@@ -14,6 +14,7 @@
 // - Objects named "wheel_…" spin when their vehicle drives.
 import * as THREE from 'three';
 import { gltfLoader } from './loader.js';
+import { loading } from './loading.js';
 
 export const slots = [
   { name: 'rickshaw', file: 'rickshaw.glb' },
@@ -26,11 +27,12 @@ export async function swapInModels(world, onLoad) {
   await Promise.all(slots.map(async (slot) => {
     const group = world.getObjectByName(slot.name);
     if (!group) return;
+    const url = `${import.meta.env.BASE_URL}models/${slot.file}`;
     try {
-      const res = await fetch(`${import.meta.env.BASE_URL}models/${slot.file}`);
+      const res = await fetch(url);
       const type = res.headers.get('content-type') || '';
       if (!res.ok || type.includes('text/html')) return; // not made yet
-      const gltf = await gltfLoader.parseAsync(await res.arrayBuffer(), '');
+      const gltf = await gltfLoader.parseAsync(await loading.read(url, res), '');
       const model = gltf.scene;
       let native = false;
       model.traverse((o) => {
@@ -44,6 +46,8 @@ export async function swapInModels(world, onLoad) {
       onLoad?.(slot.name, model, group);
     } catch (err) {
       console.warn(`[models] couldn't load ${slot.file}:`, err);
+    } finally {
+      loading.ready(url);
     }
   }));
 }

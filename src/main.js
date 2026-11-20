@@ -26,6 +26,7 @@ import { stories } from './stories.js';
 import { tales } from './tales.js';
 import { makeDirector } from './director.js';
 import { makePower } from './power.js';
+import { loading } from './loading.js';
 
 // Haze that follows Beer–Lambert: light from a surface fades as exp(-d / L) over the distance d it travels
 // through wet air (L = attenuation length). d is measured from the front edge of the block, so zooming
@@ -172,6 +173,36 @@ Promise.all([W.ready, modelsReady, crowd.ready.catch(() => null), cricket.ready.
   pigeons.setShelter(shelter); // and the pigeons know which ledges stay dry
   splash.setShelter(shelter);  // and poured water lands on what's really there
   window.__mc.shelter = shelter;
+});
+// The taxi's and the motorbike's headlights live in the scene itself, not in the vehicles (which are
+// hidden while they're away): every lit material is compiled for the number of lights in view, so a
+// headlight coming and going would recompile all of them, a visible hitch, the first time each drove in.
+// Instead they stay put in the scene and follow their vehicle, dark while it's away.
+const headlights = [];
+function keepInScene(light, vehicle) {
+  headlights.push({ light, vehicle, pos: light.position.clone(), aim: light.target.position.clone() });
+  scene.add(light, light.target);
+}
+keepInScene(W.taxi.children.find((o) => o.isSpotLight), W.taxi);
+bike.ready.then(() => keepInScene(bike.beam, bike.group)).catch(() => {});
+function followHeadlights() {
+  for (const h of headlights) {
+    h.vehicle.localToWorld(h.light.position.copy(h.pos));
+    h.vehicle.localToWorld(h.light.target.position.copy(h.aim));
+    if (!h.vehicle.visible) h.light.intensity = 0;
+  }
+}
+
+// the loading screen: once every model is in (or has failed), compile the shaders before the first
+// frame, so the GPU doesn't stall on them in front of the visitor, then lift the curtain
+Promise.allSettled([W.ready, modelsReady, crowd.ready, cricket.ready, bike.ready, dogs.ready, neighbours.ready, cat.ready, pigeons.ready]).then(async () => {
+  loading.compiling();
+  await new Promise((r) => setTimeout(r, 50)); // let the bar show it
+  try { await Promise.race([renderer.compileAsync(scene, camera), new Promise((r) => setTimeout(r, 15000))]); } catch { /* draw anyway */ }
+  loading.go();
+  // the first frames compile what's left (shadows, the post-processing passes) while still covered
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))));
+  loading.done();
 });
 const walk = { wait: 4, speed: 0.55, phase: 0, joints: {}, umbrella: null };
 const tmpV = new THREE.Vector3();
@@ -393,6 +424,7 @@ const tmpC = new THREE.Color(), tmpC2 = new THREE.Color(), tmpC3 = new THREE.Col
 
 function frame() {
   timer.update();
+  if (!loading.live) { requestAnimationFrame(frame); return; } // still loading: nothing to draw yet
   const dt = Math.min(timer.getDelta(), 0.05);
   const t = timer.getElapsed();
 
@@ -481,6 +513,7 @@ function frame() {
     if (g.mat) g.mat.emissiveIntensity = g.max * on;
   }
   power.update(dt, t, state.power, state.cut);
+  followHeadlights();
   // the sodium lamp flickers a little in the storm
   if (r > 0.6) W.lamp.intensity *= 0.92 + 0.08 * Math.sin(t * 37) * Math.sin(t * 5.3);
 
