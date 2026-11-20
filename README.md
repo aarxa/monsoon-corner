@@ -1,6 +1,9 @@
 # Monsoon Corner
 
 **A Mumbai street corner you can push from a quiet night into a monsoon downpour.**
+
+**[Open it in your browser →](https://aarxa.github.io/monsoon-corner/)**
+
 A little Blender model of one stretch of a Mumbai street, brought into the browser with three.js, where
 everything on it lives: the rain, the light, the people, the animals and the city around it.
 
@@ -197,6 +200,9 @@ src/
 ```
 
 ## Deploy
+
+Every push to `main` builds the site and publishes it to GitHub Pages
+(`.github/workflows/pages.yml`, built with `--base=/monsoon-corner/`).
 
 `npm run build` writes a static site to `dist/`. On Netlify or any static host: build command
 `npm run build`, publish directory `dist`. On Netlify or Cloudflare Pages, `public/_headers` lets browsers
