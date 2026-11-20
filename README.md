@@ -98,9 +98,6 @@ Compression on, since the app reads the custom properties), then refresh. Everyt
   its arc takes it.
 - **Rendering.** Multisampled frame, ground-truth ambient occlusion, bloom for the night lights,
   Beer–Lambert haze, a sky-gradient environment map, and a light film grade.
-- **On phones** it runs lighter: fewer pixels, no ambient occlusion, cheaper edge smoothing, smaller
-  shadow maps and half the rain, at a steady 30 fps, stepping the resolution down further if a phone
-  still can't keep up. Add `?quality=phone` or `?quality=full` to the address to choose either way.
 
 The signs are artwork, not 3D text: Devanagari needs proper shaping (a vowel sign like ि is stored after
 its consonant but drawn before it, and conjuncts need ligatures), so the boards, banners and handbills are
