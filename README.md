@@ -188,7 +188,7 @@ src/
   loading.js        the loading screen: real download progress, then shaders compiled before the reveal
   world.js          loads the street and wires up what its names mean
   physics.js        wind, shelter map, rain, impacts, swaying things
-  weather.js        steam, wet road, spouts and splashes, drips, runoff, sound
+  weather.js        steam, wet road, spouts and splashes, drips, runoff
   crowd.js, cricket.js, bike.js, dogs.js, cat.js, pigeons.js, neighbours.js
   rooms.js          rooms behind the windows;  city.js: the city around the block
   tales.js          the stories: their shots, weather, captions and cues

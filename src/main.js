@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { buildWorld, wettable, registerMaterials } from './world.js';
-import { makeSteam, makeWetRoad, makeSound, makeSpouts, makeMist, makeDrips, makeRunoff, makeSplash } from './weather.js';
+import { makeSteam, makeWetRoad, makeSpouts, makeMist, makeDrips, makeRunoff, makeSplash } from './weather.js';
 import { makeWind, buildShelter, makeImpacts, makeRain, makeSway } from './physics.js';
 import { Pass } from 'three/addons/postprocessing/Pass.js';
 import { swapInModels } from './models.js';
@@ -122,7 +122,6 @@ const pigeons = makePigeons(W.world);     // kabootar: on the ledges and wires, 
 const rain = makeRain(scene, impacts);
 const steam = makeSteam(scene, W.kettleTop);
 const road = makeWetRoad(scene);
-const sound = makeSound();
 renderer.localClippingEnabled = true;
 // the taxi appears out of, and disappears into, the cut edges of the block
 const clip = [new THREE.Plane(new THREE.Vector3(-1, 0, 0), 7.7), new THREE.Plane(new THREE.Vector3(1, 0, 0), 7.7)];
@@ -308,7 +307,7 @@ function sample(t) {
 // ---------- state & UI ----------
 const $ = (id) => document.getElementById(id);
 W.ready.then(() => { $('hint').textContent = 'Drag to look around · click things'; });
-const ui = { time: $('time'), rain: $('rain'), monsoon: $('monsoon'), sound: $('sound') };
+const ui = { time: $('time'), rain: $('rain'), monsoon: $('monsoon') };
 // cloud: overcast without (or before) rain; power: the mains (0 in a power cut); cut: seconds since it went
 const state = { time: +ui.time.value, rain: +ui.rain.value, wet: 0, flash: 0, auto: null, cloud: 0, power: 1, cut: 0, scare: false };
 ui.time.addEventListener('input', () => { state.time = +ui.time.value; state.auto = null; idle(); });
@@ -322,7 +321,6 @@ ui.monsoon.addEventListener('click', () => {
   ui.monsoon.textContent = going ? 'Clear the sky' : 'Bring the monsoon';
   idle();
 });
-ui.sound.addEventListener('click', () => ui.sound.setAttribute('aria-pressed', sound.toggle()));
 
 // ---------- stories (src/tales.js, played by src/director.js) ----------
 const director = makeDirector({
@@ -338,8 +336,8 @@ const director = makeDirector({
       card.hidden = true; tip.hidden = true; menu.hidden = true;
     },
     pigeons() { state.scare = true; },                       // the flock goes up
-    bang() { power.bang(); sound.pop(); },                  // the transformer
-    thunder() { state.flash = 0.45; sound.thunder(0.5 + Math.random() * 0.6); },
+    bang() { power.bang(); },                               // the transformer
+    thunder() { state.flash = 0.45; },
   },
   onEnd() {
     ui.monsoon.textContent = (state.auto?.rain ?? state.rain) > 0.5 ? 'Clear the sky' : 'Bring the monsoon';
@@ -492,7 +490,6 @@ function frame() {
   // lightning in a heavy night storm
   if (r > 0.75 && k.night > 0.5 && state.flash <= 0 && Math.random() < dt * 0.12) {
     state.flash = 0.45;
-    sound.thunder(0.6 + Math.random() * 1.2);
   }
   if (state.flash > 0) {
     state.flash -= dt;
@@ -544,7 +541,6 @@ function frame() {
   steam.update(dt, wind.speed * 0.3);
   runoff?.update(dt, r);
   road.update(t, state.wet, r);
-  sound.update(r);
 
   // little bits of life
   sway?.(dt, t, wind.speed);
