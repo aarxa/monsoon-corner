@@ -239,7 +239,7 @@ class HideForAO extends Pass {
       hiddenForAO.length = 0;
       const hide = (o) => { if (o.visible) { o.visible = false; hiddenForAO.push(o); } };
       W.foliage.forEach(hide);
-      scene.traverse((o) => { if (o.isSprite) hide(o); });
+      scene.traverse((o) => { if (o.isSprite || o.userData.noAO) hide(o); });
     } else {
       for (const o of hiddenForAO) o.visible = true;
     }
@@ -657,7 +657,7 @@ function frame() {
   pigeons.update(dt, t, r, k.night, dogs.dogs.concat(crowd.people), (state.flash > 0.4 && !state.flashSeen) || state.scare);
   state.flashSeen = state.flash > 0.4;
   state.scare = false;
-  spouts?.update(dt, r);
+  spouts?.update(dt, r, camera, 0.55 + 0.45 * day); // (the water catches less light at night)
   drips?.update(dt, r);
   mist.update(dt, r, scene.fog.color, wind.speed);
 

@@ -178,8 +178,16 @@ export function makeWetRoad(scene) {
 }
 
 // ---------- roof spouts: water pouring off the roofs in the rain ----------
+// Each spout pours a continuous rope of water along its arc (out at ~0.4-0.6 units/s, then falling
+// under gravity), drawn as a ribbon turned to face the camera with streaks running down it. As the water
+// speeds up the rope thins (the same flow moving faster needs less width: width ∝ 1/√v) and, lower down,
+// breaks up into slugs and drops (Plateau-Rayleigh). Those drops are real particles shed along the lower
+// stream at a steady rate (never all at once, so they don't fall in lockstep), and they're what lands:
+// spray and foam where the stream hits, and water onto the tarp for its runoff.
 export function makeSpouts(scene, spouts, ground, impacts, runoff, splash) {
-  const per = 70;
+  const G = 4.2;       // gravity in scene units (1 unit ≈ 2.3 m)
+  const SEG = 32;      // segments along each stream's ribbon
+  const DROPS = 60;    // drop slots per stream
   const streams = [];
   const down = new THREE.Vector3(0, -1, 0);
   const ray = new THREE.Raycaster();
@@ -190,16 +198,62 @@ export function makeSpouts(scene, spouts, ground, impacts, runoff, splash) {
     // so look down from that far out (twice, since the height it falls depends on what it lands on)
     let hit = null, floor = 0;
     for (let k = 0; k < 3; k++) {
-      const t = Math.sqrt((2 * Math.max(0.05, tip.y - floor)) / 4.2);
+      const t = Math.sqrt((2 * Math.max(0.05, tip.y - floor)) / G);
       ray.set(tip.clone().addScaledVector(dir, 0.55 * t).setY(tip.y - 0.05), down);
       hit = ray.intersectObject(ground, true)[0];
       floor = hit ? hit.point.y : 0.01;
     }
     // pouring onto a roof sheet (the chai tarp)? then that water runs off the sheet's edges later
     const roof = hit ? runoff?.roofOf(hit.object) : null;
-    streams.push({ tip, dir, roof, floor: hit ? hit.point.y : 0.01, drops: Array.from({ length: per }, () => ({ p: new THREE.Vector3(), v: new THREE.Vector3(), on: false })) });
+    streams.push({ tip, dir, roof, floor: hit ? hit.point.y : 0.01, T: 1, v0: 0.5, acc: Math.random(), seed: Math.random() * 50,
+      drops: Array.from({ length: DROPS }, () => ({ p: new THREE.Vector3(), v: new THREE.Vector3(), on: false })) });
   }
-  const n = streams.length * per;
+
+  // the ropes of water
+  const nv = streams.length * (SEG + 1) * 2;
+  const rpos = new Float32Array(nv * 3), rflow = new Float32Array(nv * 3), ridx = [];
+  streams.forEach((st, k) => {
+    const b = k * (SEG + 1) * 2;
+    for (let i = 0; i <= SEG; i++) {
+      for (let side = 0; side < 2; side++) rflow.set([side, i / SEG, st.seed], (b + i * 2 + side) * 3);
+      if (i < SEG) { const a = b + i * 2; ridx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    }
+  });
+  const rgeo = new THREE.BufferGeometry();
+  rgeo.setAttribute('position', new THREE.BufferAttribute(rpos, 3));
+  rgeo.setAttribute('aFlow', new THREE.BufferAttribute(rflow, 3));
+  rgeo.setIndex(ridx);
+  const U = { uTime: { value: 0 }, uFlow: { value: 0 } };
+  const rmat = new THREE.MeshBasicMaterial({ color: '#dce9f7', transparent: true, depthWrite: false, side: THREE.DoubleSide });
+  rmat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, U);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec3 aFlow; varying vec3 vFlow;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFlow = aFlow;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform float uTime, uFlow; varying vec3 vFlow;
+        float h1(float n) { return fract(sin(n * 91.3458) * 47453.5453); }
+        float n1(float x) { float i = floor(x), f = fract(x); return mix(h1(i), h1(i + 1.0), f * f * (3.0 - 2.0 * f)); }`)
+      .replace('#include <alphamap_fragment>', `#include <alphamap_fragment>
+        {
+          float x = vFlow.x * 2.0 - 1.0, y = vFlow.y, seed = vFlow.z;
+          float body = sqrt(max(0.0, 1.0 - x * x));                         // a round rope: solid in the middle, clear at the edges
+          float streak = 0.5 * n1(vFlow.x * 6.0 + seed) + 0.5 * n1(y * 10.0 - uTime * 5.0 + vFlow.x * 11.0 + seed);
+          float a = body * (0.35 + 0.65 * streak);                           // streaks running down with the water
+          float slugs = smoothstep(0.3, 0.7, n1(y * 24.0 - uTime * 13.0 + seed * 3.0));
+          a *= mix(1.0, slugs, smoothstep(0.5, 1.0, y) * 0.9);                // lower down it breaks into slugs
+          diffuseColor.a *= a * uFlow * smoothstep(1.0, 0.94, y);
+        }`);
+  };
+  const ropes = new THREE.Mesh(rgeo, rmat);
+  ropes.frustumCulled = false;
+  ropes.userData.noAO = true; // see-through water: the ambient-occlusion pass would shade it like a solid pole
+  ropes.renderOrder = 2;
+  scene.add(ropes);
+
+  // the drops it breaks into
+  const n = streams.length * DROPS;
   const pos = new Float32Array(n * 6);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -207,41 +261,76 @@ export function makeSpouts(scene, spouts, ground, impacts, runoff, splash) {
   const lines = new THREE.LineSegments(geo, mat);
   lines.frustumCulled = false;
   scene.add(lines);
-  const G = 4.2; // gravity in scene units (1 unit ≈ 2.3 m)
+
+  const P = new THREE.Vector3(), V = new THREE.Vector3(), side = new THREE.Vector3(), toCam = new THREE.Vector3();
+  const at = (st, t, out) => out.copy(st.tip).addScaledVector(st.dir, st.v0 * t).setY(st.tip.y - 0.5 * G * t * t);
+  const velAt = (st, t, out) => out.copy(st.dir).multiplyScalar(st.v0).setY(-G * t);
+  let time = 0;
+
   return {
-    update(dt, rain) {
-      let i = 0;
+    /** light: how lit the water looks (lower at night) */
+    update(dt, rain, camera, light = 1) {
+      time += dt;
       const rate = rain > 0.2 ? (rain - 0.2) / 0.8 : 0;
-      for (const st of streams) {
+      U.uTime.value = time;
+      U.uFlow.value = 0.85 * THREE.MathUtils.smoothstep(rate, 0.05, 0.35); // a light rain only dribbles
+      rmat.color.set('#dce9f7').multiplyScalar(light);
+      mat.color.set('#dce9f7').multiplyScalar(light);
+      let i = 0;
+      streams.forEach((st, k) => {
+        // this stream's arc for the current flow: how fast it leaves, and when it lands (twice, since where it
+        // lands decides how far it falls)
+        st.v0 = 0.4 + 0.2 * rate;
+        let floor = st.floor;
+        for (let it = 0; it < 2; it++) {
+          st.T = Math.sqrt((2 * Math.max(0.02, st.tip.y - floor)) / G);
+          if (splash) floor = splash.floorBelow(at(st, st.T, P), st.floor);
+        }
+        // the rope, a ribbon facing the camera
+        const b = k * (SEG + 1) * 2, w0 = 0.03 * (0.7 + 0.3 * rate);
+        for (let s = 0; s <= SEG; s++) {
+          const t = (st.T * s) / SEG;
+          at(st, t, P); velAt(st, t, V);
+          const w = w0 * Math.max(0.6, Math.sqrt(st.v0 / Math.max(st.v0, V.length())));
+          side.crossVectors(V, toCam.subVectors(camera.position, P)).normalize().multiplyScalar(w / 2);
+          rpos.set([P.x - side.x, P.y - side.y, P.z - side.z, P.x + side.x, P.y + side.y, P.z + side.z], (b + s * 2) * 3);
+        }
+        // drops shed along the lower stream at a steady rate (a trickle sheds from the top)
+        st.acc += rate * 45 * dt;
+        const lo = THREE.MathUtils.lerp(0, 0.3, Math.min(1, rate * 3));
+        while (st.acc >= 1) {
+          st.acc -= 1;
+          const d = st.drops.find((o) => !o.on);
+          if (!d) { st.acc = 0; break; }
+          const t = st.T * (lo + (0.95 - lo) * Math.random());
+          at(st, t, d.p).add(side.set((Math.random() - 0.5) * 0.015, 0, (Math.random() - 0.5) * 0.015));
+          velAt(st, t, d.v).add(side.set((Math.random() - 0.5) * 0.2, Math.random() * 0.1, (Math.random() - 0.5) * 0.2));
+          d.on = true;
+        }
         for (const d of st.drops) {
-          if (!d.on && Math.random() < rate * dt * 22) {
-            d.on = true;
-            d.p.copy(st.tip).add(new THREE.Vector3((Math.random() - 0.5) * 0.02, 0, (Math.random() - 0.5) * 0.02));
-            d.v.copy(st.dir).multiplyScalar(0.35 + Math.random() * 0.1 + rate * 0.2);
-          }
           if (d.on) {
             d.v.y -= G * dt;
             d.p.addScaledVector(d.v, dt);
-            const floor = splash ? splash.floorBelow(d.p, st.floor) : st.floor; // exactly the surface under it
-            if (d.p.y < floor) {
+            const fl = splash ? splash.floorBelow(d.p, st.floor) : st.floor; // exactly the surface under it
+            if (d.p.y < fl) {
               d.on = false;
               if (st.roof) runoff.add(st.roof, 0.05);
-              d.p.y = floor;
-              if (splash) splash.land(d.p, d.v, 1); else impacts?.hit(d.p.x, floor, d.p.z, 1.6, 0.3);
+              d.p.y = fl;
+              if (splash) splash.land(d.p, d.v, 1); else impacts?.hit(d.p.x, fl, d.p.z, 1.6, 0.3);
             }
           }
           const o = i * 6;
           if (d.on) {
             pos[o] = d.p.x; pos[o + 1] = d.p.y; pos[o + 2] = d.p.z;
-            pos[o + 3] = d.p.x - d.v.x * 0.03; pos[o + 4] = d.p.y - d.v.y * 0.03; pos[o + 5] = d.p.z - d.v.z * 0.03;
-          } else {
-            pos.fill(0, o, o + 6);
-          }
+            pos[o + 3] = d.p.x - d.v.x * 0.025; pos[o + 4] = d.p.y - d.v.y * 0.025; pos[o + 5] = d.p.z - d.v.z * 0.025;
+          } else pos.fill(0, o, o + 6);
           i++;
         }
-      }
+      });
+      rgeo.attributes.position.needsUpdate = true;
       geo.attributes.position.needsUpdate = true;
-      lines.visible = rate > 0;
+      ropes.visible = U.uFlow.value > 0.001;
+      lines.visible = rate > 0 || streams.some((st) => st.drops.some((d) => d.on));
     },
   };
 }
