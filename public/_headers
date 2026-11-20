@@ -1,0 +1,9 @@
+# Cache rules for Netlify and Cloudflare Pages (other hosts ignore this file).
+# The models are asked for as ?v=<content hash> and the scripts and styles have hashed names, so a
+# browser can keep them for a year: a changed file gets a new address. A repeat visit loads instantly.
+/models/*
+  Cache-Control: public, max-age=31536000, immutable
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+/draco/*
+  Cache-Control: public, max-age=2592000

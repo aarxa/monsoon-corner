@@ -13,7 +13,7 @@
 // - Materials whose name starts with "glow" (glow_headlight, glow_tail…) light up at night.
 // - Objects named "wheel_…" spin when their vehicle drives.
 import * as THREE from 'three';
-import { gltfLoader } from './loader.js';
+import { gltfLoader, versioned } from './loader.js';
 import { loading } from './loading.js';
 
 export const slots = [
@@ -29,7 +29,7 @@ export async function swapInModels(world, onLoad) {
     if (!group) return;
     const url = `${import.meta.env.BASE_URL}models/${slot.file}`;
     try {
-      const res = await fetch(url);
+      const res = await fetch(versioned(url));
       const type = res.headers.get('content-type') || '';
       if (!res.ok || type.includes('text/html')) return; // not made yet
       const gltf = await gltfLoader.parseAsync(await loading.read(url, res), '');

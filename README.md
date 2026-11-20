@@ -199,7 +199,9 @@ src/
 ## Deploy
 
 `npm run build` writes a static site to `dist/`. On Netlify or any static host: build command
-`npm run build`, publish directory `dist`.
+`npm run build`, publish directory `dist`. On Netlify or Cloudflare Pages, `public/_headers` lets browsers
+keep the models for a year (each is asked for with a hash of its contents, so an updated model is
+fetched fresh), which makes a second visit load almost instantly.
 
 ## Licence
 

@@ -58,18 +58,24 @@ const envSky = new THREE.ShaderMaterial({
   fragmentShader: 'uniform vec3 top, horizon, ground; varying vec3 vP; void main(){ float h = vP.y; vec3 c = h > 0.0 ? mix(horizon, top, pow(h, 0.55)) : mix(horizon * 0.6, ground, smoothstep(0.0, 0.3, -h)); gl_FragColor = vec4(c, 1.0); }',
 });
 envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), envSky));
-let envRT = null, envKey = '', envAt = -1;
+// The sky is a smooth gradient, so a small cube (64 px a side) holds it as well as a big one, and is far
+// cheaper to rebuild; it's rebuilt only when the sky has changed enough to see, at most twice a second
+// (dragging the sliders, the monsoon rolling in, a story).
+const ENV_SIZE = 64;
+let envRT = null, envAt = -1;
+const envLast = [new THREE.Color(-1, -1, -1), new THREE.Color(), new THREE.Color()];
+const colourGap = (a, b) => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b);
 function updateEnv(t, top, horizon, ground) {
-  const key = top.getHexString() + horizon.getHexString() + ground.getHexString();
-  if (key === envKey || t - envAt < 0.25) return;
-  envKey = key; envAt = t;
+  const gap = colourGap(top, envLast[0]) + colourGap(horizon, envLast[1]) + colourGap(ground, envLast[2]);
+  if (gap < 0.006 || t - envAt < 0.5) return;
+  envLast[0].copy(top); envLast[1].copy(horizon); envLast[2].copy(ground); envAt = t;
   envSky.uniforms.top.value.copy(top); envSky.uniforms.horizon.value.copy(horizon); envSky.uniforms.ground.value.copy(ground);
   const old = envRT;
-  envRT = pmrem.fromScene(envScene, 0, 0.1, 50);
+  envRT = pmrem.fromScene(envScene, 0, 0.1, 50, { size: ENV_SIZE });
   scene.environment = envRT.texture;
   old?.dispose();
 }
-scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture; // until the first sky is ready
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04, 0.1, 100, { size: ENV_SIZE }).texture; // until the first sky is ready (the same size, so nothing recompiles)
 scene.fog = new THREE.Fog('#bfe3f0', 20, 500);
 // a gradient sky that melts into the fog at the horizon
 const sky = new THREE.Mesh(new THREE.SphereGeometry(90, 32, 16), new THREE.ShaderMaterial({
@@ -197,7 +203,14 @@ function followHeadlights() {
 Promise.allSettled([W.ready, modelsReady, crowd.ready, cricket.ready, bike.ready, dogs.ready, neighbours.ready, cat.ready, pigeons.ready]).then(async () => {
   loading.compiling();
   await new Promise((r) => setTimeout(r, 50)); // let the bar show it
-  try { await Promise.race([renderer.compileAsync(scene, camera), new Promise((r) => setTimeout(r, 15000))]); } catch { /* draw anyway */ }
+  // (compiled for where the scene is really drawn: the composer's linear buffer, not the screen, whose
+  // colour space and tone mapping would give different shaders)
+  try {
+    renderer.setRenderTarget(composer.readBuffer);
+    const compiled = renderer.compileAsync(scene, camera); // (it gathers and starts everything right away)
+    renderer.setRenderTarget(null);
+    await Promise.race([compiled, new Promise((r) => setTimeout(r, 15000))]);
+  } catch { renderer.setRenderTarget(null); /* draw anyway */ }
   loading.go(); // the frame loop lifts the curtain after its first few frames (see `drawn` below)
 });
 const walk = { wait: 4, speed: 0.55, phase: 0, joints: {}, umbrella: null };
@@ -417,7 +430,19 @@ const timer = new THREE.Timer();
 timer.connect(document);
 const tmpC = new THREE.Color(), tmpC2 = new THREE.Color(), tmpC3 = new THREE.Color(), tmpC4 = new THREE.Color();
 
-let drawn = 0; // frames drawn so far (the loading screen lifts after the first few)
+// Warm-up, behind the loading screen: the first frame draws everything once, the hidden and the
+// off-screen things too (the taxi waiting round the corner, the walker, the motorbike, aunty, the washing
+// in its basket), so their shaders, meshes and textures are all on the GPU before anyone sees them
+// arrive; then the street runs for a second, settling, before the curtain lifts.
+let drawn = 0, liveAt = 0;
+function drawEverything() {
+  const undo = [];
+  scene.traverse((o) => {
+    if (!o.visible && !o.isLight) { o.visible = true; undo.push(() => { o.visible = false; }); }
+    if (o.frustumCulled) { o.frustumCulled = false; undo.push(() => { o.frustumCulled = true; }); }
+  });
+  return undo;
+}
 
 function frame() {
   timer.update();
@@ -644,9 +669,13 @@ function frame() {
     }
     controls.update(dt);
   }
+  const warm = drawn === 0 ? drawEverything() : null;
   composer.render();
-  // the first frames compile what's left (shadows, the post-processing passes) while still covered
-  if (drawn < 3 && ++drawn === 3) loading.done();
+  if (warm) for (const undo of warm) undo();
+  if (drawn >= 0 && ++drawn >= 3) {
+    liveAt ||= performance.now();
+    if (performance.now() - liveAt > 1000) { loading.done(); drawn = -1; }
+  }
   requestAnimationFrame(frame);
 }
 // handy for poking at the scene from the console
