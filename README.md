@@ -14,13 +14,10 @@ It opens at night. Drag **Time** back towards noon, push **Rain** up to a downpo
 **Bring the monsoon** and let it roll in. Drag to look around, scroll to zoom, and click things on the
 street to read about them.
 
-Or press **Stories** and watch one of two short films played on the street itself:
-
-- **Light gayi.** A stormy night in July, and the power goes. Candles and phone torches come on behind
-  the windows, the kirana switches on its battery light, one flat with an inverter keeps its TV going,
-  and then the lights come back on, one home at a time.
-- **The first rain.** A hot afternoon at the end of May. The cloud comes in, the pigeons go up, the cat
-  leaves, aunty runs for her washing, and everyone ends up under the same tarpaulin.
+Or press **Stories** and watch **Light gayi**, a short film played on the street itself: a stormy night
+in July, and the power goes. Candles and phone torches come on behind the windows, the kirana switches
+on its battery light, the one family in the building with an inverter keeps its TV going, and then the
+lights come back on, one home at a time.
 
 ## Run it
 
@@ -193,7 +190,7 @@ src/
   weather.js        steam, wet road, spouts and splashes, drips, runoff, sound
   crowd.js, cricket.js, bike.js, dogs.js, cat.js, pigeons.js, neighbours.js
   rooms.js          rooms behind the windows;  city.js: the city around the block
-  tales.js          the two stories: their shots, weather, captions and cues
+  tales.js          the stories: their shots, weather, captions and cues
   director.js       plays a story: camera, timeline, captions;  power.js: what a power cut does
   looks.js          optional art styles (?look=toy|ink|gouache|pixel|riso)
 ```
